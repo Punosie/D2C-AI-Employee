@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = Field(..., min_length=1)
     SUPABASE_KEY: str = Field(..., min_length=1)
 
+    GOOGLE_SERVICE_ACCOUNT_JSON: str = Field(..., min_length=1)
+    GOOGLE_SHEET_IDS: str = Field(..., min_length=1)
+    GOOGLE_GENAI_API_KEY: str = Field(..., min_length=1)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
