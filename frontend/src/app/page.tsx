@@ -20,7 +20,7 @@ const SUGGESTIONS = [
   'What was my revenue last month?',
   'How is my Meta Ads ROAS trending?',
   'Which products are running low on stock?',
-  'What's my repeat customer rate?',
+  "What's my repeat customer rate?",
 ]
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -192,6 +192,7 @@ export default function ChatPage() {
             <button
               onClick={() => send()}
               disabled={!input.trim() || loading}
+              aria-label="Send message"
               className="shrink-0 p-3 bg-gray-900 text-white rounded-xl hover:bg-gray-700 disabled:bg-gray-200 disabled:text-gray-400 transition-colors"
             >
               {loading ? (
