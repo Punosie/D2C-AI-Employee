@@ -4,6 +4,39 @@ All notable changes are documented here, in reverse chronological order.
 
 ---
 
+## [Unreleased]
+
+### Added
+- `src/merchant.py` — dynamic merchant config (currency, sheet tab names, column aliases); agent can read/update via `get_merchant_config` / `update_merchant_config` tools.
+- `src/tools/trend_tools.py` — `query_roas_trend` and `query_sales_trend`: week-over-week data, direction, consecutive streak, and spend erosion.
+- `src/agent/citations.py` — `verify_citations()`: checks every cited row ID exists in Supabase before it reaches the user; invalid citations are logged in `agent_runs.reasoning`.
+- `src/api.py` — FastAPI chat server (`uvicorn src.api:app`).
+- `frontend/` — Next.js 14 chat app (TypeScript, Tailwind CSS, react-markdown). Run `npm run dev` from `frontend/`.
+- `frontend/src/app/api/chat/route.ts` — API proxy from Next.js to FastAPI.
+
+### Changed
+- `src/connectors/shopify.py` — incremental sync: `sync()` reads `shopify_last_sync` from merchant config and passes `updated_at_min` to the orders endpoint; writes timestamp back after each run.
+- `src/connectors/google_sheets.py` — column validation (raises loudly on missing required headers after alias resolution); dynamic tab names from merchant config; `resolve_columns()` applies stored column aliases before normalizing.
+- `src/agent/agent.py` — added trend tools and merchant config tools; instruction updated for currency formatting and self-configuration.
+- `src/tools/query_tools.py` — `log_agent_run` now calls `verify_citations()` and drops unverifiable citations before inserting into `agent_runs`.
+- `.gitignore` — added `templates/` and `frontend/.env.local`.
+
+---
+
+## 8b4fecd — 2026-05-13 · fix: plug-and-play connector registry
+
+### Added
+- `src/connectors/registry.py` — central registry; adding/removing a connector is one line.
+- `sync()` to each connector (`shopify`, `meta_ads`, `google_sheets`).
+
+### Changed
+- `src/jobs/sync.py` — drives off the registry instead of direct connector imports.
+- `src/tools/query_tools.py` — fix: `query_sales` was selecting non-existent `shopify_order_id`; corrected to `external_id`.
+
+---
+
+## b872a8e — 2026-05-13 · feat: add Shopify + Meta connectors, wire sync job, add changelog
+
 ### Added
 - `src/connectors/shopify.py` — full Shopify connector: fetches orders, customers, and products; normalises into `orders`, `order_items`, `customers`, and `products` tables. Pagination via Shopify `Link` header. `customer_id`, `order_id`, and `product_id` foreign-key fields on child records.
 - `src/connectors/meta_ads.py` — Meta Ads connector: fetches last-30-day campaign insights, normalises into `ad_spend`.

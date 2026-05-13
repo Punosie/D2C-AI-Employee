@@ -128,11 +128,15 @@ def add_note(table: str, row_id: int, note: str) -> dict:
 
 def log_agent_run(check_name: str, status: str, reasoning: str, proposed_action: str, citations: list) -> dict:
     """Write an autonomous agent run with reasoning and proposed action to the database."""
+    from src.agent.citations import verify_citations
+    valid, invalid = verify_citations(citations)
+    if invalid:
+        reasoning = f"{reasoning}\n[WARNING: {len(invalid)} unverifiable citation(s) dropped: {invalid}]"
     supabase.table("agent_runs").insert({
-        "check_name": check_name,
-        "status": status,
-        "reasoning": reasoning,
+        "check_name":      check_name,
+        "status":          status,
+        "reasoning":       reasoning,
         "proposed_action": proposed_action,
-        "citations": citations,
+        "citations":       valid,
     }).execute()
-    return {"logged": True}
+    return {"logged": True, "citations_verified": len(valid), "citations_dropped": len(invalid)}

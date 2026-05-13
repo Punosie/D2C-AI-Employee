@@ -2,13 +2,23 @@ from src.config import settings
 from .base import NormalizedRecord, make_session
 
 
-def fetch_shopify() -> dict:
-    """Fetch orders, customers, and products from Shopify."""
+def fetch_shopify(updated_since: str | None = None) -> dict:
+    """
+    Fetch orders, customers, and products from Shopify.
+
+    updated_since — ISO timestamp for incremental order sync (updated_at_min param).
+    On first run this is None → full sync. sync() sets it automatically after each run.
+    """
     session = make_session()
     session.headers["X-Shopify-Access-Token"] = settings.SHOPIFY_API_KEY
     base = f"https://{settings.SHOPIFY_STORE_URL}/admin/api/2024-01"
+
+    orders_url = f"{base}/orders.json?status=any&limit=250"
+    if updated_since:
+        orders_url += f"&updated_at_min={updated_since}"
+
     return {
-        "orders":    _fetch_paginated(session, f"{base}/orders.json?status=any&limit=250", "orders"),
+        "orders":    _fetch_paginated(session, orders_url, "orders"),
         "customers": _fetch_paginated(session, f"{base}/customers.json?limit=250", "customers"),
         "products":  _fetch_paginated(session, f"{base}/products.json?limit=250", "products"),
     }
@@ -22,6 +32,19 @@ def normalize_shopify(raw: dict) -> list[NormalizedRecord]:
     records.extend(_normalize_products(raw.get("products", [])))
     return records
 
+
+def sync() -> list[NormalizedRecord]:
+    """Incremental sync: pulls only orders updated since the last run."""
+    from src.merchant import get_merchant_config, update_merchant_config
+    from datetime import datetime, timezone
+
+    last_sync = get_merchant_config("shopify_last_sync").get("value")
+    records = normalize_shopify(fetch_shopify(updated_since=last_sync))
+    update_merchant_config("shopify_last_sync", datetime.now(timezone.utc).isoformat())
+    return records
+
+
+# ── Private normalizers ───────────────────────────────────────────────────────
 
 def _normalize_orders(orders: list[dict]) -> list[NormalizedRecord]:
     records = []
@@ -107,6 +130,8 @@ def _normalize_products(products: list[dict]) -> list[NormalizedRecord]:
     return records
 
 
+# ── Pagination helpers ────────────────────────────────────────────────────────
+
 def _fetch_paginated(session, url: str, key: str) -> list[dict]:
     results = []
     while url:
@@ -124,7 +149,3 @@ def _next_page(link_header: str | None) -> str | None:
         if 'rel="next"' in part:
             return part.split(";")[0].strip().strip("<>")
     return None
-
-
-def sync() -> list[NormalizedRecord]:
-    return normalize_shopify(fetch_shopify())
