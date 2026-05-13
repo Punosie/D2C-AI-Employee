@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     GOOGLE_SHEET_IDS: str = Field(..., min_length=1)
     GOOGLE_GENAI_API_KEY: str = Field(..., min_length=1)
 
+    SHOPIFY_STORE_URL: str | None = Field(default=None)
+    SHOPIFY_API_KEY: str | None = Field(default=None)
+
+    META_ACCESS_TOKEN: str | None = Field(default=None)
+    META_AD_ACCOUNT_ID: str | None = Field(default=None)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
