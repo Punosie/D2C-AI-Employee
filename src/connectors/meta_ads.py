@@ -50,3 +50,7 @@ def normalize_meta(raw: list[dict]) -> list[NormalizedRecord]:
         ))
 
     return records
+
+
+def sync() -> list[NormalizedRecord]:
+    return normalize_meta(fetch_meta())

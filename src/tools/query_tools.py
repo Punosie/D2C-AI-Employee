@@ -7,7 +7,7 @@ def query_sales(from_date: str, to_date: str) -> dict:
     """Return total revenue, order count, and AOV for a date range with source citations."""
     rows = (
         supabase.table("orders")
-        .select("id, shopify_order_id, total_price, created_at, source, source_id")
+        .select("id, external_id, total_price, created_at, source, source_id")
         .gte("created_at", from_date)
         .lte("created_at", to_date)
         .execute()

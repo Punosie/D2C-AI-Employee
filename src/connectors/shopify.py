@@ -124,3 +124,7 @@ def _next_page(link_header: str | None) -> str | None:
         if 'rel="next"' in part:
             return part.split(";")[0].strip().strip("<>")
     return None
+
+
+def sync() -> list[NormalizedRecord]:
+    return normalize_shopify(fetch_shopify())

@@ -141,3 +141,7 @@ def normalize_sheets(raw: dict[str, list[dict]]) -> list[NormalizedRecord]:
         if normalizer:
             records.extend(normalizer(rows))
     return records
+
+
+def sync() -> list[NormalizedRecord]:
+    return normalize_sheets(fetch_sheets())
