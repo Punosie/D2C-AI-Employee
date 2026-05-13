@@ -33,7 +33,7 @@ def load_settings() -> Settings:
 
     except ValidationError as e:
 
-        print("\n❌ Environment configuration error\n")
+        print("\n Environment configuration error\n")
 
         for error in e.errors():
 
