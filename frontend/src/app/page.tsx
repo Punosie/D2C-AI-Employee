@@ -26,12 +26,41 @@ const SUGGESTIONS = [
   "What's my repeat customer rate?",
 ]
 
-// ── Citation preprocessor ─────────────────────────────────────────────────────
+// ── Citation extraction ───────────────────────────────────────────────────────
 
-function processCitations(text: string): string {
-  // Convert [source:table#id] → `[table#id]` so ReactMarkdown renders them as
-  // styled inline code (visually distinct, no extra packages needed)
-  return text.replace(/\[source:([^\]]+)\]/g, '`[$1]`')
+interface CitationRef {
+  index: number
+  connector: string
+  table: string
+  id: string
+}
+
+const CONNECTOR_LABELS: Record<string, string> = {
+  shopify:       'Shopify',
+  meta_ads:      'Meta Ads',
+  google_sheets: 'Google Sheets',
+  source:        'Data',
+}
+
+function extractCitations(text: string): { body: string; refs: CitationRef[] } {
+  const seen = new Map<string, number>()
+  const refs: CitationRef[] = []
+  let counter = 1
+
+  // Match [connector:table#id] — connector is any lowercase word, id may be empty
+  const body = text.replace(
+    /\[([a-z_]+):([a-z_]+)#([^\]]*)\]/g,
+    (_match, connector, table, id) => {
+      const key = `${connector}:${table}#${id}`
+      if (!seen.has(key)) {
+        seen.set(key, counter)
+        refs.push({ index: counter, connector, table, id: id.trim() })
+        counter++
+      }
+      return `[${seen.get(key)}]`
+    }
+  )
+  return { body, refs }
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -342,12 +371,70 @@ function MessageBubble({ message }: { message: Message }) {
             : 'bg-white border-gray-100 text-gray-800'
         }`}
       >
-        <div className="prose prose-sm">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {processCitations(message.content)}
-          </ReactMarkdown>
-        </div>
+        <CitedContent text={message.content} />
       </div>
+    </div>
+  )
+}
+
+// ── CitedContent — Perplexity-style inline badges + Sources panel ─────────────
+
+function CitedContent({ text }: { text: string }) {
+  const { body, refs } = extractCitations(text)
+  const parts = body.split(/(\[\d+\])/)
+
+  return (
+    <div>
+      <div className="prose prose-sm leading-relaxed">
+        {parts.map((part, i) => {
+          const m = part.match(/^\[(\d+)\]$/)
+          if (m) {
+            return (
+              <sup
+                key={i}
+                title={`Source ${m[1]}`}
+                className="inline-flex items-center justify-center min-w-[15px] h-[15px] px-0.5 rounded bg-blue-100 text-blue-700 font-bold text-[9px] mx-0.5 not-italic cursor-default select-none"
+              >
+                {m[1]}
+              </sup>
+            )
+          }
+          if (!part) return null
+          return (
+            <ReactMarkdown
+              key={i}
+              remarkPlugins={[remarkGfm]}
+              components={{ p: ({ children }) => <span>{children}</span> }}
+            >
+              {part}
+            </ReactMarkdown>
+          )
+        })}
+      </div>
+
+      {refs.length > 0 && (
+        <div className="mt-3 pt-2.5 border-t border-gray-100">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
+            Sources
+          </p>
+          <div className="flex flex-col gap-1">
+            {refs.map((ref) => (
+              <div key={ref.index} className="flex items-center gap-2 text-xs">
+                <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded bg-blue-100 text-blue-700 font-bold text-[9px] shrink-0">
+                  {ref.index}
+                </span>
+                <span className="font-medium text-gray-700">
+                  {CONNECTOR_LABELS[ref.connector] ?? ref.connector}
+                </span>
+                <span className="text-gray-300">·</span>
+                <span className="font-mono text-[11px] text-gray-500">
+                  {ref.table}{ref.id ? ` #${ref.id}` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
