@@ -1,3 +1,4 @@
+import os
 import sys
 
 from dotenv import load_dotenv
@@ -39,4 +40,5 @@ def load_settings() -> Settings:
 
 
 settings: Settings = load_settings()
+os.environ.setdefault("GOOGLE_API_KEY", settings.GOOGLE_GENAI_API_KEY)  # ADK reads GOOGLE_API_KEY
 supabase: Client   = create_client(str(settings.SUPABASE_URL), settings.SUPABASE_KEY)
