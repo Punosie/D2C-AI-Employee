@@ -133,17 +133,21 @@ SHEET_CONFIG: dict[str, callable] = {
 
 # ── Public interface ──────────────────────────────────────────────────────────
 
-def fetch_sheets(tab_names: dict | None = None) -> dict[str, list[dict]]:
+def fetch_sheets(sheet_ids: str | None = None, tab_names: dict | None = None) -> dict[str, list[dict]]:
     """
     Read all configured sheet tabs across all sheet IDs.
 
-    tab_names — optional override from merchant config, mapping canonical role
-    (inventory, raw_materials, vendors, budget) to actual tab name in the sheet.
-    Falls back to default names if not provided.
+    sheet_ids — comma-separated spreadsheet IDs (overrides settings).
+    tab_names — optional override from merchant config.
     """
     from src.merchant import resolve_columns
 
     val = settings.GOOGLE_SERVICE_ACCOUNT_JSON
+    if not val:
+        raise ValueError(
+            "Google service account is not configured. "
+            "Add GOOGLE_SERVICE_ACCOUNT_JSON to your .env file."
+        )
     gc = (
         gspread.service_account_from_dict(json.loads(val))
         if val.strip().startswith("{")
@@ -158,10 +162,11 @@ def fetch_sheets(tab_names: dict | None = None) -> dict[str, list[dict]]:
         "Monthly Budget":    (tab_names or {}).get("budget",        "Monthly Budget"),
     }
 
-    sheet_ids = [s.strip() for s in settings.GOOGLE_SHEET_IDS.split(",") if s.strip()]
+    _ids      = sheet_ids or settings.GOOGLE_SHEET_IDS or ""
+    sheet_id_list = [s.strip() for s in _ids.split(",") if s.strip()]
     result: dict[str, list[dict]] = {}
 
-    for sheet_id in sheet_ids:
+    for sheet_id in sheet_id_list:
         spreadsheet = gc.open_by_key(sheet_id)
         for canonical_name, actual_tab_name in tab_map.items():
             try:
@@ -185,10 +190,21 @@ def normalize_sheets(raw: dict[str, list[dict]]) -> list[NormalizedRecord]:
     return records
 
 
-def sync() -> list[NormalizedRecord]:
+def sync(merchant_id: str = "default") -> list[NormalizedRecord]:
+    """Reads sheet IDs fresh from DB — no restart needed."""
+    from src.credentials import get_credentials
     from src.merchant import get_all_config
+
+    sheet_creds = get_credentials(merchant_id).get("google_sheets", {})
+    sheet_ids   = sheet_creds.get("sheet_ids") or settings.GOOGLE_SHEET_IDS
+
+    if not sheet_ids:
+        raise ValueError(
+            "Google Sheets not connected. Go to Settings and share your spreadsheet."
+        )
+
     config = get_all_config()
-    raw = fetch_sheets(tab_names=config.get("sheet_tab_names"))
+    raw    = fetch_sheets(sheet_ids=sheet_ids, tab_names=config.get("sheet_tab_names"))
     return normalize_sheets(raw)
 
 

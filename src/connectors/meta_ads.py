@@ -2,14 +2,16 @@ from src.config import settings
 from .base import NormalizedRecord, make_session
 
 
-def fetch_meta() -> list[dict]:
+def fetch_meta(access_token: str | None = None, account_id: str | None = None) -> list[dict]:
     """Fetch last 30 days of campaign insights from Meta Ads."""
-    session = make_session()
+    _token   = access_token or settings.META_ACCESS_TOKEN or ""
+    _acct_id = account_id   or settings.META_AD_ACCOUNT_ID or ""
 
+    session = make_session()
     resp = session.get(
-        f"https://graph.facebook.com/v19.0/act_{settings.META_AD_ACCOUNT_ID}/insights",
+        f"https://graph.facebook.com/v19.0/act_{_acct_id}/insights",
         params={
-            "access_token": settings.META_ACCESS_TOKEN,
+            "access_token": _token,
             "fields": "date_start,campaign_name,spend,impressions,clicks,actions",
             "time_increment": 1,        # daily breakdown
             "date_preset": "last_30d",
@@ -52,5 +54,16 @@ def normalize_meta(raw: list[dict]) -> list[NormalizedRecord]:
     return records
 
 
-def sync() -> list[NormalizedRecord]:
-    return normalize_meta(fetch_meta())
+def sync(merchant_id: str = "default") -> list[NormalizedRecord]:
+    """Reads credentials fresh from DB — no restart needed."""
+    from src.credentials import get_credentials
+
+    creds        = get_credentials(merchant_id).get("meta_ads", {})
+    access_token = creds.get("access_token") or settings.META_ACCESS_TOKEN
+    account_id   = creds.get("account_id")   or settings.META_AD_ACCOUNT_ID
+
+    if not (access_token and account_id):
+        raise ValueError(
+            "Meta Ads not connected. Go to Settings and add your Meta Ads details."
+        )
+    return normalize_meta(fetch_meta(access_token, account_id))

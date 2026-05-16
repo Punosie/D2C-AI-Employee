@@ -2,16 +2,19 @@ from src.config import settings
 from .base import NormalizedRecord, make_session
 
 
-def fetch_shopify(updated_since: str | None = None) -> dict:
+def fetch_shopify(store_url: str | None = None, api_key: str | None = None, updated_since: str | None = None) -> dict:
     """
     Fetch orders, customers, and products from Shopify.
 
-    updated_since — ISO timestamp for incremental order sync (updated_at_min param).
-    On first run this is None → full sync. sync() sets it automatically after each run.
+    Credentials are passed explicitly so they can be loaded fresh per merchant.
+    updated_since — ISO timestamp for incremental order sync.
     """
+    _store_url = store_url or settings.SHOPIFY_STORE_URL or ""
+    _api_key   = api_key   or settings.SHOPIFY_API_KEY   or ""
+
     session = make_session()
-    session.headers["X-Shopify-Access-Token"] = settings.SHOPIFY_API_KEY
-    base = f"https://{settings.SHOPIFY_STORE_URL}/admin/api/2024-01"
+    session.headers["X-Shopify-Access-Token"] = _api_key
+    base = f"https://{_store_url}/admin/api/2024-01"
 
     orders_url = f"{base}/orders.json?status=any&limit=250"
     if updated_since:
@@ -33,13 +36,23 @@ def normalize_shopify(raw: dict) -> list[NormalizedRecord]:
     return records
 
 
-def sync() -> list[NormalizedRecord]:
-    """Incremental sync: pulls only orders updated since the last run."""
+def sync(merchant_id: str = "default") -> list[NormalizedRecord]:
+    """Incremental sync: reads credentials fresh from DB — no restart needed."""
+    from src.credentials import get_credentials
     from src.merchant import get_merchant_config, update_merchant_config
     from datetime import datetime, timezone
 
+    creds     = get_credentials(merchant_id).get("shopify", {})
+    store_url = creds.get("store_url") or settings.SHOPIFY_STORE_URL
+    api_key   = creds.get("api_key")   or settings.SHOPIFY_API_KEY
+
+    if not (store_url and api_key):
+        raise ValueError(
+            "Shopify not connected. Go to Settings and add your Shopify store details."
+        )
+
     last_sync = get_merchant_config("shopify_last_sync").get("value")
-    records = normalize_shopify(fetch_shopify(updated_since=last_sync))
+    records   = normalize_shopify(fetch_shopify(store_url, api_key, updated_since=last_sync))
     update_merchant_config("shopify_last_sync", datetime.now(timezone.utc).isoformat())
     return records
 
