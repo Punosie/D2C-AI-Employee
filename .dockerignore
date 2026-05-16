@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+.env
+service_account.json
+credentials.json
+frontend/
+docs/
+tests/
+.git/
+*.md
