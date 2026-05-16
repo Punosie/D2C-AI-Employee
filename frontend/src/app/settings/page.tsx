@@ -262,7 +262,8 @@ function ShopifyCard({ configured, prefillStore, merchantId, onSaved }: {
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1.5">API token</label>
-              <SecretInput value={token} onChange={setToken} placeholder="shpat_••••••••••••••••••" />
+              <SecretInput value={token} onChange={setToken} placeholder={configured ? '••••••••' : 'shpat_••••••••••••••••••'} />
+              {configured && !token && <p className="mt-1 text-xs text-slate-400">Token saved — paste a new one to replace</p>}
             </div>
             <form onSubmit={e => { e.preventDefault(); save() }}>
               <ConnectButton saving={saving} saved={saved} error={error} disabled={!store.trim() || !token.trim()} />
@@ -342,7 +343,8 @@ function MetaCard({ configured, prefillAccountId, merchantId, onSaved }: {
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1.5">Access token</label>
-              <SecretInput value={token} onChange={setToken} placeholder="EAAxxxxxxxxxxxxx" />
+              <SecretInput value={token} onChange={setToken} placeholder={configured ? '••••••••' : 'EAAxxxxxxxxxxxxx'} />
+              {configured && !token && <p className="mt-1 text-xs text-slate-400">Token saved — paste a new one to replace</p>}
             </div>
             <form onSubmit={e => { e.preventDefault(); save() }}>
               <ConnectButton saving={saving} saved={saved} error={error} disabled={!accountId.trim() || !token.trim()} />
