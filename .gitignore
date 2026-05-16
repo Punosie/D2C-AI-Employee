@@ -1,6 +1,8 @@
 .env
+credentials.json
 venv*
 __pycache__*
+*.pytest_cache
 service_account.json
 templates/
 frontend/.env.local
