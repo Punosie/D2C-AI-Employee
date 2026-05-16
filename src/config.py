@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # Infrastructure — required
     SUPABASE_URL:        str = Field(..., min_length=1)
     SUPABASE_KEY:        str = Field(..., min_length=1)
-    GOOGLE_GENAI_API_KEY: str = Field(..., min_length=1)
+    GOOGLE_GENAI_API_KEY: str = Field(default="")
 
     # Connector credentials — optional (managed via UI / merchant_credentials table)
     GOOGLE_SERVICE_ACCOUNT_JSON: str | None = Field(default=None)
@@ -23,8 +23,9 @@ class Settings(BaseSettings):
     META_ACCESS_TOKEN:           str | None = Field(default=None)
     META_AD_ACCOUNT_ID:          str | None = Field(default=None)
 
-    # Fallback AI keys — optional
+    # AI keys — optional
     GROQ_API_KEY:                str = Field(default="")
+    AGENT_CHECK_INTERVAL_MINUTES: int = Field(default=1440)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -38,10 +39,9 @@ def load_settings() -> Settings:
             field   = ".".join(map(str, error["loc"]))
             message = error["msg"]
             print(f"• {field}: {message}")
-        print("\nSet SUPABASE_URL, SUPABASE_KEY, and GOOGLE_GENAI_API_KEY in your .env file.\n")
+        print("\nSet SUPABASE_URL and SUPABASE_KEY in your .env file.\n")
         sys.exit(1)
 
 
 settings: Settings = load_settings()
-os.environ.setdefault("GOOGLE_API_KEY", settings.GOOGLE_GENAI_API_KEY)  # ADK reads GOOGLE_API_KEY
 supabase: Client   = create_client(str(settings.SUPABASE_URL), settings.SUPABASE_KEY)

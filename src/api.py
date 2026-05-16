@@ -93,7 +93,7 @@ async def _start_scheduler():
     _scheduler.add_job(sync_all_merchants, "interval", hours=6, id="sync_all", misfire_grace_time=300)
     _scheduler.add_job(
         lambda: asyncio.run(run_autonomous_checks()),
-        "interval", hours=24, id="agent_checks", misfire_grace_time=600,
+        "interval", minutes=settings.AGENT_CHECK_INTERVAL_MINUTES, id="agent_checks", misfire_grace_time=600,
     )
     _scheduler.start()
     logger.info("Scheduler started — sync every 6 h, agent checks every 24 h")
@@ -139,6 +139,18 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user)):
     from src.agent.groq_agent import run_agent
     response_text = await run_agent(req.message, merchant_id=user_id)
     return ChatResponse(response=response_text, session_id=session_id)
+
+
+@app.post("/sync")
+async def trigger_sync(user_id: str = Depends(get_current_user)):
+    import asyncio
+    from src.jobs.sync import run_sync
+    try:
+        await asyncio.to_thread(run_sync, merchant_id=user_id)
+        return {"status": "synced"}
+    except Exception as e:
+        logger.error("Manual sync error: %s", e)
+        return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
 
 
 @app.get("/settings")

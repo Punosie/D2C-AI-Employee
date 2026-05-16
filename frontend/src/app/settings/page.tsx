@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   Zap, ChevronLeft, CheckCircle2, XCircle, Info,
   Copy, Check, ChevronDown, ChevronUp, Eye, EyeOff,
-  ExternalLink, AlertTriangle,
+  ExternalLink, AlertTriangle, RefreshCw, Loader2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 
@@ -28,6 +28,27 @@ export default function SettingsPage() {
   const [googleEmail, setGoogleEmail] = useState<string | null>(null)
   const [merchantId, setMerchantId]   = useState('default')
   const [authToken, setAuthToken]     = useState('')
+  const [syncing, setSyncing]         = useState(false)
+  const [toast, setToast]             = useState<string | null>(null)
+  const [lastSyncAt, setLastSyncAt]   = useState<number | null>(null)
+
+  const handleSync = async () => {
+    if (syncing) return
+    if (lastSyncAt && Date.now() - lastSyncAt < 2 * 60 * 1000) {
+      setToast('Already synced')
+      return
+    }
+    setSyncing(true)
+    try {
+      await fetch('/api/sync', { method: 'POST', headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} })
+      setLastSyncAt(Date.now())
+      setToast('Sync complete')
+    } catch {
+      setToast('Sync failed — try again')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const load = useCallback((mid: string, token: string) => {
     fetch(`/api/settings?merchant_id=${mid}`, {
@@ -68,11 +89,22 @@ export default function SettingsPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-xl mx-auto px-4 py-10">
 
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-slate-900">Connect your data</h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Connect the tools you use to run your business. Your AI employee will read live data from them.
-            </p>
+          <div className="mb-8 flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">Connect your data</h1>
+              <p className="text-sm text-slate-500 mt-1">
+                Connect the tools you use to run your business. Your AI employee will read live data from them.
+              </p>
+            </div>
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="shrink-0 mt-1 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-xl hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400 transition-colors"
+            >
+              {syncing
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Syncing…</>
+                : <><RefreshCw className="w-4 h-4" /> Sync now</>}
+            </button>
           </div>
 
           {status && !Object.values(status).some((v) => v.configured) && (
@@ -114,6 +146,8 @@ export default function SettingsPage() {
           </p>
         </div>
       </div>
+
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
   )
 }
@@ -274,7 +308,7 @@ function ShopifyCard({ configured, prefillStore, merchantId, authToken, onSaved 
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1.5">API token</label>
-              <SecretInput value={token} onChange={setToken} placeholder={configured ? '••••••••' : 'shpat_••••••••••••••••••'} />
+              <SecretInput value={token} onChange={setToken} placeholder={configured ? '••••••••' : 'Paste your Admin API access token'} />
               {configured && !token && <p className="mt-1 text-xs text-slate-400">Token saved — paste a new one to replace</p>}
             </div>
             <form onSubmit={e => { e.preventDefault(); save() }}>
@@ -460,6 +494,20 @@ function GoogleSheetsCard({ configured, prefillSheetIds, serviceEmail, merchantI
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+function Toast({ message, onDone }: { message: string; onDone: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 3000)
+    return () => clearTimeout(t)
+  }, [onDone])
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-slate-900 text-white text-sm font-medium rounded-xl shadow-lg">
+      {message}
     </div>
   )
 }
