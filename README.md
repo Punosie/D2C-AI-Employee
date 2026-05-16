@@ -2,6 +2,8 @@
 
 An AI employee for D2C brands — connects your Shopify store, Meta Ads account, and Google Sheets, normalises everything into a shared data model, and answers questions in natural language with every number cited back to the source row.
 
+[Live Demo](https://d2c-ai-employee-ui.vercel.app/)
+
 ---
 
 ## 1. What I Built
