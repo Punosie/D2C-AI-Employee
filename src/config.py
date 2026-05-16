@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     META_ACCESS_TOKEN:           str | None = Field(default=None)
     META_AD_ACCOUNT_ID:          str | None = Field(default=None)
 
+    # Fallback AI keys — optional
+    GROQ_API_KEY:                str = Field(default="")
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

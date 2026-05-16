@@ -156,11 +156,21 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user)):
         return ChatResponse(response=response_text, session_id=session_id)
 
     except Exception as e:
-        logger.error("Chat error: %s", e)
-        return ChatResponse(
-            response="Something went wrong on my end. Please try again.",
-            session_id=session_id,
-        )
+        logger.error("Gemini agent error: %s", repr(e))
+        try:
+            from src.agent.fallback import run_with_fallback
+            fallback_text = await run_with_fallback(req.message)
+            return ChatResponse(response=fallback_text, session_id=session_id)
+        except Exception as fe:
+            logger.error("All fallbacks failed: %s", repr(fe))
+            return ChatResponse(
+                response=(
+                    "All AI models are currently unavailable.\n\n"
+                    "Please check `GOOGLE_GENAI_API_KEY` and `GROQ_API_KEY` "
+                    "in the Railway service variables."
+                ),
+                session_id=session_id,
+            )
 
 
 @app.get("/settings")
