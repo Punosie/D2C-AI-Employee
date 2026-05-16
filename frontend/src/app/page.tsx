@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, Plus, Zap, Loader2, RotateCcw } from 'lucide-react'
+import { Send, Plus, Zap, Loader2, RotateCcw, Settings } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,12 +31,16 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [sessionId, setSessionId] = useState('')
+  const [merchantId, setMerchantId] = useState('default')
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setSessionId(localStorage.getItem('d2c_session_id') || '')
+    let mid = localStorage.getItem('d2c_merchant_id')
+    if (!mid) { mid = crypto.randomUUID(); localStorage.setItem('d2c_merchant_id', mid) }
+    setMerchantId(mid)
   }, [])
 
   useEffect(() => {
@@ -65,7 +70,7 @@ export default function ChatPage() {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: msg, session_id: sessionId }),
+          body: JSON.stringify({ message: msg, session_id: sessionId, merchant_id: merchantId }),
         })
         const data = await res.json()
 
@@ -98,7 +103,7 @@ export default function ChatPage() {
         setTimeout(() => inputRef.current?.focus(), 0)
       }
     },
-    [input, loading, sessionId]
+    [input, loading, sessionId, merchantId]
   )
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -136,15 +141,13 @@ export default function ChatPage() {
         </div>
 
         <div className="p-4 border-t border-white/10">
-          <p className="text-xs text-gray-500">Connected to</p>
-          <div className="mt-2 flex flex-col gap-1.5">
-            {['Shopify', 'Meta Ads', 'Google Sheets'].map((src) => (
-              <div key={src} className="flex items-center gap-2 text-xs text-gray-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                {src}
-              </div>
-            ))}
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs text-gray-500">Data sources</p>
+            <Link href="/settings" className="text-gray-500 hover:text-white transition-colors" title="Connector settings">
+              <Settings className="w-3.5 h-3.5" />
+            </Link>
           </div>
+          <ConnectorDots />
         </div>
       </aside>
 
@@ -207,6 +210,37 @@ export default function ChatPage() {
           </p>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── ConnectorDots ─────────────────────────────────────────────────────────────
+
+function ConnectorDots() {
+  const [status, setStatus] = useState<Record<string, { configured: boolean }>>({})
+
+  useEffect(() => {
+    const mid = localStorage.getItem('d2c_merchant_id') || 'default'
+    fetch(`/api/settings?merchant_id=${mid}`)
+      .then((r) => r.json())
+      .then(setStatus)
+      .catch(() => {})
+  }, [])
+
+  const connectors = [
+    { key: 'shopify',       label: 'Shopify' },
+    { key: 'meta_ads',      label: 'Meta Ads' },
+    { key: 'google_sheets', label: 'Google Sheets' },
+  ]
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {connectors.map(({ key, label }) => (
+        <div key={key} className="flex items-center gap-2 text-xs text-gray-400">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${status[key]?.configured ? 'bg-emerald-400' : 'bg-gray-600'}`} />
+          {label}
+        </div>
+      ))}
     </div>
   )
 }

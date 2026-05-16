@@ -42,6 +42,12 @@ Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
 beforeEach(() => {
   mockFetch.mockReset()
+  // Pre-queue one response for ConnectorDots (/api/settings on mount) so it doesn't
+  // consume the mock that individual tests set for /api/chat calls.
+  mockFetch.mockResolvedValueOnce({
+    ok: true,
+    json: () => Promise.resolve({}),
+  } as Response)
   localStorageMock.clear()
   uuidCounter = 0
 })
