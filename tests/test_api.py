@@ -1,33 +1,10 @@
 """
 Tests for the FastAPI chat backend (src/api.py).
-The ADK runner, session service, auth, and credential check are all mocked
-so no live Gemini calls, DB reads, or auth tokens are needed.
+The Groq agent and credential check are mocked — no live API or DB calls needed.
 """
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _make_final_event(text: str):
-    event = MagicMock()
-    event.is_final_response.return_value = True
-    part = MagicMock()
-    part.text = text
-    event.content = MagicMock()
-    event.content.parts = [part]
-    return event
-
-
-async def _mock_run_async(*args, **kwargs):
-    yield _make_final_event("Revenue last month was ₹4,23,000.")
-
-
-async def _mock_create_session(*args, **kwargs):
-    session = MagicMock()
-    session.id = "mock-adk-session-id"
-    return session
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -35,12 +12,10 @@ async def _mock_create_session(*args, **kwargs):
 @pytest.fixture
 def client():
     import src.api as api_module
-    # Override FastAPI dependency so no real JWT is needed
     api_module.app.dependency_overrides[api_module.get_current_user] = lambda: "test-user-id"
     with (
-        patch.object(api_module._runner, "run_async", side_effect=_mock_run_async),
-        patch.object(api_module._session_service, "create_session", side_effect=_mock_create_session),
-        # Mark at least one connector as configured so the guard passes
+        patch("src.agent.groq_agent.run_agent",
+              new=AsyncMock(return_value="Revenue last month was ₹4,23,000.")),
         patch("src.credentials.credentials_status",
               return_value={"shopify": {"configured": True}}),
     ):
@@ -92,8 +67,7 @@ def test_chat_blocked_when_no_connectors_configured():
     try:
         with patch("src.credentials.credentials_status",
                    return_value={"shopify": {"configured": False}, "meta_ads": {"configured": False}}):
-            tc = TestClient(api_module.app)
-            resp = tc.post("/chat", json={"message": "Hello"})
+            resp = TestClient(api_module.app).post("/chat", json={"message": "Hello"})
             assert resp.status_code == 200
             assert "Settings" in resp.json()["response"]
     finally:
@@ -102,6 +76,5 @@ def test_chat_blocked_when_no_connectors_configured():
 
 def test_root_returns_valid_response():
     import src.api as api_module
-    tc = TestClient(api_module.app)
-    resp = tc.get("/")
+    resp = TestClient(api_module.app).get("/")
     assert resp.status_code in (200, 404, 500)

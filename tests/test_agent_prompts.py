@@ -28,7 +28,7 @@ def _patched_client(response=None, error=None):
     else:
         instance.chat.completions.create = AsyncMock(return_value=response or _mock_completion())
     mock_cls = MagicMock(return_value=instance)
-    return patch("src.agent.fallback.AsyncOpenAI", mock_cls)
+    return patch("src.agent.groq_agent.AsyncOpenAI", mock_cls)
 
 
 # ── Error-path tests ──────────────────────────────────────────────────────────
@@ -36,8 +36,8 @@ def _patched_client(response=None, error=None):
 @pytest.mark.asyncio
 async def test_missing_groq_key_returns_friendly_message(monkeypatch):
     """No key → friendly string, not an exception or env-var reference."""
-    monkeypatch.setattr("src.agent.fallback.settings.GROQ_API_KEY", "")
-    from src.agent.fallback import run_with_fallback
+    monkeypatch.setattr("src.agent.groq_agent.settings.GROQ_API_KEY", "")
+    from src.agent.groq_agent import run_agent as run_with_fallback
     result = await run_with_fallback("What is my revenue?")
     assert isinstance(result, str)
     assert len(result) > 0
@@ -49,8 +49,8 @@ async def test_missing_groq_key_returns_friendly_message(monkeypatch):
 @pytest.mark.asyncio
 async def test_groq_api_error_returns_friendly_message(monkeypatch):
     """Network/auth error from Groq → friendly string, not a raised exception."""
-    monkeypatch.setattr("src.agent.fallback.settings.GROQ_API_KEY", "test-key")
-    from src.agent.fallback import run_with_fallback
+    monkeypatch.setattr("src.agent.groq_agent.settings.GROQ_API_KEY", "test-key")
+    from src.agent.groq_agent import run_agent as run_with_fallback
     with _patched_client(error=Exception("Connection reset")):
         result = await run_with_fallback("Hello")
     assert isinstance(result, str)
@@ -61,8 +61,8 @@ async def test_groq_api_error_returns_friendly_message(monkeypatch):
 async def test_bad_request_error_returns_friendly_message(monkeypatch):
     """Groq 400 (malformed tool call) → friendly string."""
     from openai import BadRequestError
-    monkeypatch.setattr("src.agent.fallback.settings.GROQ_API_KEY", "test-key")
-    from src.agent.fallback import run_with_fallback
+    monkeypatch.setattr("src.agent.groq_agent.settings.GROQ_API_KEY", "test-key")
+    from src.agent.groq_agent import run_agent as run_with_fallback
     mock_resp = MagicMock()
     mock_resp.status_code = 400
     mock_resp.json.return_value = {"error": {"message": "tool_use_failed"}}
@@ -90,8 +90,8 @@ async def test_bad_request_error_returns_friendly_message(monkeypatch):
 ])
 async def test_common_prompt_returns_non_empty_response(prompt, monkeypatch):
     """All standard D2C prompts produce a non-empty, non-error response."""
-    monkeypatch.setattr("src.agent.fallback.settings.GROQ_API_KEY", "test-key")
-    from src.agent.fallback import run_with_fallback
+    monkeypatch.setattr("src.agent.groq_agent.settings.GROQ_API_KEY", "test-key")
+    from src.agent.groq_agent import run_agent as run_with_fallback
     with _patched_client(_mock_completion("Here is the answer for your question.")):
         result = await run_with_fallback(prompt)
     assert isinstance(result, str)
@@ -102,7 +102,7 @@ async def test_common_prompt_returns_non_empty_response(prompt, monkeypatch):
 
 def test_dispatch_coerces_limit_string_to_int():
     """'10' (string) must be coerced to 10 (int) before calling query_products."""
-    from src.agent.fallback import _dispatch
+    from src.agent.groq_agent import _dispatch
     with patch("src.tools.query_tools.query_products") as mock_qp:
         mock_qp.return_value = {"products": [], "citations": []}
         _dispatch("query_products", {"limit": "10"})
@@ -113,7 +113,7 @@ def test_dispatch_coerces_limit_string_to_int():
 
 def test_dispatch_drops_non_numeric_limit():
     """'all' (non-numeric string) must be dropped, not passed to query_products."""
-    from src.agent.fallback import _dispatch
+    from src.agent.groq_agent import _dispatch
     with patch("src.tools.query_tools.query_products") as mock_qp:
         mock_qp.return_value = {"products": [], "citations": []}
         _dispatch("query_products", {"limit": "all"})
@@ -122,7 +122,7 @@ def test_dispatch_drops_non_numeric_limit():
 
 
 def test_dispatch_unknown_tool_returns_error_dict():
-    from src.agent.fallback import _dispatch
+    from src.agent.groq_agent import _dispatch
     result = _dispatch("nonexistent_tool", {})
     assert isinstance(result, dict)
     assert "error" in result
@@ -130,7 +130,7 @@ def test_dispatch_unknown_tool_returns_error_dict():
 
 def test_dispatch_tool_exception_returns_error_dict():
     """If the underlying tool raises, _dispatch should return an error dict."""
-    from src.agent.fallback import _dispatch
+    from src.agent.groq_agent import _dispatch
     with patch("src.tools.query_tools.query_customers", side_effect=Exception("DB down")):
         result = _dispatch("query_customers", {})
     assert isinstance(result, dict)

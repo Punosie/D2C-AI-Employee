@@ -16,10 +16,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai.types import Content, Part
-from src.agent.agent import root_agent
 from src.config import settings, supabase
 
 logger = logging.getLogger(__name__)
@@ -48,9 +44,7 @@ async def get_current_user(authorization: str = Header(default="")) -> str:
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid auth token")
 
-_session_service = InMemorySessionService()
-_runner = Runner(agent=root_agent, app_name="d2c_agent", session_service=_session_service)
-_sessions: dict[str, str] = {}
+
 _scheduler = BackgroundScheduler()
 
 
@@ -92,10 +86,17 @@ class SettingsRequest(BaseModel):
 
 @app.on_event("startup")
 async def _start_scheduler():
+    import asyncio
     from src.jobs.sync import sync_all_merchants
+    from src.agent.runner import run_autonomous_checks
+
     _scheduler.add_job(sync_all_merchants, "interval", hours=6, id="sync_all", misfire_grace_time=300)
+    _scheduler.add_job(
+        lambda: asyncio.run(run_autonomous_checks()),
+        "interval", hours=24, id="agent_checks", misfire_grace_time=600,
+    )
     _scheduler.start()
-    logger.info("Sync scheduler started — runs every 6 hours")
+    logger.info("Scheduler started — sync every 6 h, agent checks every 24 h")
 
 
 @app.on_event("shutdown")
@@ -135,38 +136,9 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.warning("Could not check connector status: %s", e)
 
-    try:
-        if session_id not in _sessions:
-            session = await _session_service.create_session(
-                app_name="d2c_agent", user_id=session_id
-            )
-            _sessions[session_id] = session.id
-
-        adk_session_id = _sessions[session_id]
-        message        = Content(role="user", parts=[Part(text=req.message)])
-        response_text  = ""
-
-        async for event in _runner.run_async(
-            user_id=session_id, session_id=adk_session_id, new_message=message
-        ):
-            if event.is_final_response():
-                parts = event.content.parts if event.content else []
-                response_text = parts[0].text if parts else "(no response)"
-
-        return ChatResponse(response=response_text, session_id=session_id)
-
-    except Exception as e:
-        logger.error("Gemini agent error: %s", repr(e))
-        try:
-            from src.agent.fallback import run_with_fallback
-            fallback_text = await run_with_fallback(req.message)
-            return ChatResponse(response=fallback_text, session_id=session_id)
-        except Exception as fe:
-            logger.error("All fallbacks failed: %s", repr(fe))
-            return ChatResponse(
-                response="I'm having a bit of trouble right now. Please try again in a moment.",
-                session_id=session_id,
-            )
+    from src.agent.groq_agent import run_agent
+    response_text = await run_agent(req.message, merchant_id=user_id)
+    return ChatResponse(response=response_text, session_id=session_id)
 
 
 @app.get("/settings")
@@ -188,7 +160,6 @@ async def save_settings(req: SettingsRequest, user_id: str = Depends(get_current
         if req.shopify:
             creds = {}
             if req.shopify.store_url:
-                # Strip protocol prefix so "https://mystore.myshopify.com" → "mystore.myshopify.com"
                 url = req.shopify.store_url.strip()
                 url = url.replace("https://", "").replace("http://", "").rstrip("/")
                 creds["store_url"] = url
@@ -202,7 +173,6 @@ async def save_settings(req: SettingsRequest, user_id: str = Depends(get_current
             if req.meta_ads.access_token:
                 creds["access_token"] = req.meta_ads.access_token.strip()
             if req.meta_ads.account_id:
-                # Strip "act_" prefix if the user included it
                 acct = req.meta_ads.account_id.strip().lstrip("act_")
                 creds["account_id"] = acct
             if creds:
@@ -211,7 +181,6 @@ async def save_settings(req: SettingsRequest, user_id: str = Depends(get_current
         if req.google_sheets:
             creds = {}
             if req.google_sheets.sheet_ids:
-                # Accept full Google Sheet URLs and extract just the ID
                 raw = req.google_sheets.sheet_ids.strip()
                 ids = [_extract_sheet_id(s.strip()) for s in raw.split(",") if s.strip()]
                 creds["sheet_ids"] = ",".join(ids)
@@ -248,19 +217,19 @@ async def get_metrics(merchant_id: str = "default"):
     """Aggregate KPIs for the last 30 days."""
     from src.tools.query_tools import query_sales, query_ad_spend, query_customers
     try:
-        today          = str(date.today())
-        thirty_ago     = str(date.today() - timedelta(days=30))
-        sales          = query_sales(thirty_ago, today)
-        ad             = query_ad_spend()
-        cust           = query_customers()
+        today      = str(date.today())
+        thirty_ago = str(date.today() - timedelta(days=30))
+        sales      = query_sales(thirty_ago, today)
+        ad         = query_ad_spend()
+        cust       = query_customers()
         return {
-            "revenue_30d":    sales["total_revenue"],
-            "orders_30d":     sales["order_count"],
-            "aov":            sales["aov"],
-            "roas":           ad["roas"],
-            "ad_spend_30d":   ad["total_spend"],
-            "customer_count": cust["customer_count"],
-            "repeat_rate_pct":cust["repeat_rate_pct"],
+            "revenue_30d":     sales["total_revenue"],
+            "orders_30d":      sales["order_count"],
+            "aov":             sales["aov"],
+            "roas":            ad["roas"],
+            "ad_spend_30d":    ad["total_spend"],
+            "customer_count":  cust["customer_count"],
+            "repeat_rate_pct": cust["repeat_rate_pct"],
         }
     except Exception as e:
         logger.error("Metrics error: %s", e)
