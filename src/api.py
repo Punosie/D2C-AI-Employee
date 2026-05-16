@@ -164,11 +164,7 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user)):
         except Exception as fe:
             logger.error("All fallbacks failed: %s", repr(fe))
             return ChatResponse(
-                response=(
-                    "All AI models are currently unavailable.\n\n"
-                    "Please check `GOOGLE_GENAI_API_KEY` and `GROQ_API_KEY` "
-                    "in the Railway service variables."
-                ),
+                response="I'm having a bit of trouble right now. Please try again in a moment.",
                 session_id=session_id,
             )
 

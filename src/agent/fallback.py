@@ -46,7 +46,7 @@ _TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Max products to return (default 10)"},
+                    "limit": {"description": "Max products to return as a number, e.g. 10 (default 10)"},
                 },
             },
         },
@@ -112,6 +112,12 @@ def _dispatch(name: str, args: dict):
     fn = fns.get(name)
     if not fn:
         return {"error": f"Unknown tool: {name}"}
+    # Coerce types that LLMs commonly get wrong
+    if name == "query_products" and "limit" in args:
+        try:
+            args["limit"] = int(args["limit"])
+        except (ValueError, TypeError):
+            args.pop("limit")
     try:
         return fn(**args)
     except Exception as e:
@@ -152,45 +158,47 @@ Use query_roas_trend and query_sales_trend to provide trend context, not just po
 
 async def run_with_fallback(message: str) -> str:
     if not settings.GROQ_API_KEY:
-        return (
-            "The AI service is temporarily unavailable and no fallback is configured.\n\n"
-            "Add `GROQ_API_KEY` to Railway service variables to enable fallback. "
-            "Get a free key at https://console.groq.com"
+        logger.warning("Groq fallback skipped: GROQ_API_KEY not configured")
+        return "I'm having a bit of trouble right now. Please try again in a moment."
+
+    try:
+        client = AsyncOpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=settings.GROQ_API_KEY,
         )
 
-    client = AsyncOpenAI(
-        base_url="https://api.groq.com/openai/v1",
-        api_key=settings.GROQ_API_KEY,
-    )
+        messages: list[dict] = [
+            {"role": "system", "content": _SYSTEM},
+            {"role": "user",   "content": message},
+        ]
 
-    messages: list[dict] = [
-        {"role": "system", "content": _SYSTEM},
-        {"role": "user",   "content": message},
-    ]
+        for _ in range(8):  # max tool-call rounds
+            resp = await client.chat.completions.create(
+                model="moonshotai/kimi-k2-instruct",
+                messages=messages,
+                tools=_TOOLS,
+                tool_choice="auto",
+                max_tokens=2048,
+            )
+            msg = resp.choices[0].message
+            messages.append(msg.model_dump(exclude_none=True))
 
-    for _ in range(8):  # max tool-call rounds
-        resp = await client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            tools=_TOOLS,
-            tool_choice="auto",
-            max_tokens=2048,
-        )
-        msg = resp.choices[0].message
-        messages.append(msg.model_dump(exclude_none=True))
+            if not msg.tool_calls:
+                logger.info("Groq fallback served response")
+                return msg.content or ""
 
-        if not msg.tool_calls:
-            logger.info("Groq fallback served response")
-            return msg.content or ""
+            for tc in msg.tool_calls:
+                args = json.loads(tc.function.arguments or "{}")
+                result = await asyncio.to_thread(_dispatch, tc.function.name, args)
+                messages.append({
+                    "role":         "tool",
+                    "tool_call_id": tc.id,
+                    "content":      json.dumps(result),
+                })
 
-        for tc in msg.tool_calls:
-            args = json.loads(tc.function.arguments or "{}")
-            result = await asyncio.to_thread(_dispatch, tc.function.name, args)
-            messages.append({
-                "role":         "tool",
-                "tool_call_id": tc.id,
-                "content":      json.dumps(result),
-            })
+        logger.warning("Groq fallback hit max tool-call rounds")
+        return "I ran into an issue processing your request. Please try again."
 
-    logger.warning("Groq fallback hit max tool-call rounds")
-    return "I ran into an issue processing your request. Please try again."
+    except Exception as e:
+        logger.error("Groq fallback error: %s", repr(e))
+        return "I'm having a bit of trouble right now. Please try again in a moment."
