@@ -10,6 +10,8 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.105.4",
     "framer-motion": "^12.38.0",
     "lucide-react": "^0.400.0",
     "next": "^14.2.0",

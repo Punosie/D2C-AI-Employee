@@ -2,23 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Zap, ChevronLeft, CheckCircle2, XCircle, Info,
   Copy, Check, ChevronDown, ChevronUp, Eye, EyeOff,
   ExternalLink,
 } from 'lucide-react'
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function getMerchantId(): string {
-  if (typeof window === 'undefined') return 'default'
-  let id = localStorage.getItem('d2c_merchant_id')
-  if (!id) {
-    id = crypto.randomUUID()
-    localStorage.setItem('d2c_merchant_id', id)
-  }
-  return id
-}
+import { createClient } from '@/lib/supabase'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,21 +21,30 @@ interface Status {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const router   = useRouter()
+  const supabase = createClient()
+
   const [status, setStatus]           = useState<Status | null>(null)
   const [googleEmail, setGoogleEmail] = useState<string | null>(null)
   const [merchantId, setMerchantId]   = useState('default')
+  const [authToken, setAuthToken]     = useState('')
 
-  const load = useCallback((mid: string) => {
-    fetch(`/api/settings?merchant_id=${mid}`)
+  const load = useCallback((mid: string, token: string) => {
+    fetch(`/api/settings?merchant_id=${mid}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
       .then(r => r.json()).then(setStatus).catch(() => {})
     fetch('/api/settings/google-email')
       .then(r => r.json()).then(d => setGoogleEmail(d.email || null)).catch(() => {})
   }, [])
 
   useEffect(() => {
-    const mid = getMerchantId()
-    setMerchantId(mid)
-    load(mid)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { router.push('/login'); return }
+      setMerchantId(session.user.id)
+      setAuthToken(session.access_token)
+      load(session.user.id, session.access_token)
+    })
   }, [load])
 
   return (
@@ -81,20 +80,23 @@ export default function SettingsPage() {
               configured={status?.shopify.configured ?? false}
               prefillStore={status?.shopify.store_url ?? ''}
               merchantId={merchantId}
-              onSaved={() => load(merchantId)}
+              authToken={authToken}
+              onSaved={() => load(merchantId, authToken)}
             />
             <MetaCard
               configured={status?.meta_ads.configured ?? false}
               prefillAccountId={status?.meta_ads.account_id ?? ''}
               merchantId={merchantId}
-              onSaved={() => load(merchantId)}
+              authToken={authToken}
+              onSaved={() => load(merchantId, authToken)}
             />
             <GoogleSheetsCard
               configured={status?.google_sheets.configured ?? false}
               prefillSheetIds={status?.google_sheets.sheet_ids ?? ''}
               serviceEmail={googleEmail}
               merchantId={merchantId}
-              onSaved={() => load(merchantId)}
+              authToken={authToken}
+              onSaved={() => load(merchantId, authToken)}
             />
           </div>
 
@@ -195,8 +197,8 @@ function ConnectButton({ saving, saved, error, disabled }: { saving: boolean; sa
 
 // ── Shopify card ──────────────────────────────────────────────────────────────
 
-function ShopifyCard({ configured, prefillStore, merchantId, onSaved }: {
-  configured: boolean; prefillStore: string; merchantId: string; onSaved: () => void
+function ShopifyCard({ configured, prefillStore, merchantId, authToken, onSaved }: {
+  configured: boolean; prefillStore: string; merchantId: string; authToken: string; onSaved: () => void
 }) {
   const [open, setOpen]       = useState(!configured)
   const [store, setStore]     = useState(prefillStore)
@@ -212,7 +214,8 @@ function ShopifyCard({ configured, prefillStore, merchantId, onSaved }: {
     setSaving(true); setError(null)
     try {
       const res = await fetch('/api/settings', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({ merchant_id: merchantId, shopify: { store_url: store, api_key: token } }),
       })
       const data = await res.json()
@@ -277,8 +280,8 @@ function ShopifyCard({ configured, prefillStore, merchantId, onSaved }: {
 
 // ── Meta Ads card ─────────────────────────────────────────────────────────────
 
-function MetaCard({ configured, prefillAccountId, merchantId, onSaved }: {
-  configured: boolean; prefillAccountId: string; merchantId: string; onSaved: () => void
+function MetaCard({ configured, prefillAccountId, merchantId, authToken, onSaved }: {
+  configured: boolean; prefillAccountId: string; merchantId: string; authToken: string; onSaved: () => void
 }) {
   const [open, setOpen]         = useState(!configured)
   const [accountId, setAccountId] = useState(prefillAccountId)
@@ -294,7 +297,8 @@ function MetaCard({ configured, prefillAccountId, merchantId, onSaved }: {
     setSaving(true); setError(null)
     try {
       const res = await fetch('/api/settings', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({ merchant_id: merchantId, meta_ads: { access_token: token, account_id: accountId } }),
       })
       const data = await res.json()
@@ -358,8 +362,8 @@ function MetaCard({ configured, prefillAccountId, merchantId, onSaved }: {
 
 // ── Google Sheets card ────────────────────────────────────────────────────────
 
-function GoogleSheetsCard({ configured, prefillSheetIds, serviceEmail, merchantId, onSaved }: {
-  configured: boolean; prefillSheetIds: string; serviceEmail: string | null; merchantId: string; onSaved: () => void
+function GoogleSheetsCard({ configured, prefillSheetIds, serviceEmail, merchantId, authToken, onSaved }: {
+  configured: boolean; prefillSheetIds: string; serviceEmail: string | null; merchantId: string; authToken: string; onSaved: () => void
 }) {
   const [open, setOpen]         = useState(!configured)
   const [sheetUrl, setSheetUrl] = useState(prefillSheetIds)
@@ -374,7 +378,8 @@ function GoogleSheetsCard({ configured, prefillSheetIds, serviceEmail, merchantI
     setSaving(true); setError(null)
     try {
       const res = await fetch('/api/settings', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({ merchant_id: merchantId, google_sheets: { sheet_ids: sheetUrl } }),
       })
       const data = await res.json()

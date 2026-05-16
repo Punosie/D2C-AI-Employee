@@ -10,7 +10,7 @@ import uuid
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -19,7 +19,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
 from src.agent.agent import root_agent
-from src.config import settings
+from src.config import settings, supabase
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +27,25 @@ app = FastAPI(title="D2C AI Employee")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://d2c-ai-employee-ui.vercel.app",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def get_current_user(authorization: str = Header(default="")) -> str:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing auth token")
+    token = authorization.split(" ", 1)[1]
+    try:
+        result = supabase.auth.get_user(token)
+        return result.user.id
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid auth token")
 
 _session_service = InMemorySessionService()
 _runner = Runner(agent=root_agent, app_name="d2c_agent", session_service=_session_service)
@@ -84,7 +99,7 @@ async def health():
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, user_id: str = Depends(get_current_user)):
     session_id = req.session_id or str(uuid.uuid4())
     try:
         if session_id not in _sessions:
@@ -115,17 +130,18 @@ async def chat(req: ChatRequest):
 
 
 @app.get("/settings")
-async def get_settings(merchant_id: str = "default"):
+async def get_settings(user_id: str = Depends(get_current_user)):
     try:
         from src.credentials import credentials_status
-        return credentials_status(merchant_id)
+        return credentials_status(user_id)
     except Exception as e:
         logger.error("Settings read error: %s", e)
         return JSONResponse({"error": "Could not load settings."}, status_code=500)
 
 
 @app.post("/settings")
-async def save_settings(req: SettingsRequest):
+async def save_settings(req: SettingsRequest, user_id: str = Depends(get_current_user)):
+    req.merchant_id = user_id
     try:
         from src.credentials import save_credentials
 

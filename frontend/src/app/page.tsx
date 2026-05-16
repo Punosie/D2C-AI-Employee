@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, Plus, Zap, Loader2, RotateCcw, Settings } from 'lucide-react'
+import { Send, Plus, Zap, Loader2, RotateCcw, Settings, LogOut } from 'lucide-react'
+import { createClient } from '@/lib/supabase'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,25 +29,47 @@ const SUGGESTIONS = [
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
+  const router   = useRouter()
+  const supabase = createClient()
+
+  const [messages, setMessages]   = useState<Message[]>([])
+  const [input, setInput]         = useState('')
+  const [loading, setLoading]     = useState(false)
   const [sessionId, setSessionId] = useState('')
-  const [merchantId, setMerchantId] = useState('default')
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [merchantId, setMerchantId] = useState('')
+  const [authToken, setAuthToken] = useState('')
+  const [userEmail, setUserEmail] = useState('')
+  const bottomRef   = useRef<HTMLDivElement>(null)
+  const inputRef    = useRef<HTMLTextAreaElement>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    setSessionId(localStorage.getItem('d2c_session_id') || '')
-    let mid = localStorage.getItem('d2c_merchant_id')
-    if (!mid) { mid = crypto.randomUUID(); localStorage.setItem('d2c_merchant_id', mid) }
-    setMerchantId(mid)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { router.push('/login'); return }
+      setMerchantId(session.user.id)
+      setAuthToken(session.access_token)
+      setUserEmail(session.user.email ?? '')
+      setSessionId(localStorage.getItem('d2c_session_id') || '')
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) { router.push('/login'); return }
+      setMerchantId(session.user.id)
+      setAuthToken(session.access_token)
+      setUserEmail(session.user.email ?? '')
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
+
+  const signOut = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   const newChat = () => {
     localStorage.removeItem('d2c_session_id')
@@ -69,7 +93,10 @@ export default function ChatPage() {
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          },
           body: JSON.stringify({ message: msg, session_id: sessionId, merchant_id: merchantId }),
         })
         const data = await res.json()
@@ -103,7 +130,7 @@ export default function ChatPage() {
         setTimeout(() => inputRef.current?.focus(), 0)
       }
     },
-    [input, loading, sessionId, merchantId]
+    [input, loading, sessionId, merchantId, authToken]
   )
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -147,7 +174,18 @@ export default function ChatPage() {
               <Settings className="w-3.5 h-3.5" />
             </Link>
           </div>
-          <ConnectorDots />
+          <ConnectorDots merchantId={merchantId} authToken={authToken} />
+          {userEmail && (
+            <div className="mt-3 pt-3 border-t border-white/10">
+              <p className="text-xs text-gray-500 truncate mb-1.5">{userEmail}</p>
+              <button
+                onClick={signOut}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+              >
+                <LogOut className="w-3 h-3" /> Sign out
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -216,16 +254,18 @@ export default function ChatPage() {
 
 // ── ConnectorDots ─────────────────────────────────────────────────────────────
 
-function ConnectorDots() {
+function ConnectorDots({ merchantId, authToken }: { merchantId: string; authToken: string }) {
   const [status, setStatus] = useState<Record<string, { configured: boolean }>>({})
 
   useEffect(() => {
-    const mid = localStorage.getItem('d2c_merchant_id') || 'default'
-    fetch(`/api/settings?merchant_id=${mid}`)
+    if (!merchantId) return
+    fetch(`/api/settings?merchant_id=${merchantId}`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    })
       .then((r) => r.json())
       .then(setStatus)
       .catch(() => {})
-  }, [])
+  }, [merchantId, authToken])
 
   const connectors = [
     { key: 'shopify',       label: 'Shopify' },
