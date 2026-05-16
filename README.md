@@ -26,7 +26,7 @@ Three connectors, each behind the same contract: `sync(merchant_id) -> list[Norm
 | **Meta Ads** | `ad_spend` | The dominant paid acquisition channel for D2C brands in India and globally. ROAS is the most-asked question in any D2C ops review. |
 | **Google Sheets** | `inventory`, `raw_material_costs`, `vendors`, `monthly_budget` | Every D2C founder already has spreadsheets for things that don't have a dedicated SaaS. Supporting Sheets means instant compatibility with real-world ops without custom integrations. |
 
-**What I didn't build:** WooCommerce (smaller target market than Shopify), Google Ads (Meta-first D2C brands are the majority in our target), Klaviyo (email LTV is a second-order ask — revenue and ROAS are first). Adding any of these is one file + one line in `src/connectors/registry.py`.
+**What I didn't build:** WooCommerce (smaller target market than Shopify), Google Ads (Meta-first D2C brands are the majority in our target). Adding any of these is one file + one line in `src/connectors/registry.py`.
 
 **Connector contract** (`src/connectors/base.py`):
 ```python
@@ -118,7 +118,7 @@ Every tool returns a `citations` array alongside data. The agent must reference 
 
 ## 5. Agent
 
-**What it does:** The autonomous agent (`src/agent/runner.py`) runs four checks on the live data and writes its reasoning and proposed action to `agent_runs`. It does not send emails or Slack messages — it proposes and logs.
+**What it does:** The autonomous agent (`src/agent/runner.py`) runs four checks on the live data and writes its reasoning and proposed action to `agent_runs`.
 
 Current checks (run on a configurable schedule, default 24 h):
 1. **ROAS erosion:** ROAS dropped more than 20% week-over-week on any platform — flags specific campaigns and proposes bid adjustment.
@@ -126,7 +126,7 @@ Current checks (run on a configurable schedule, default 24 h):
 3. **Repeat customer rate:** If the 30-day repeat rate falls below 20% — proposes a retention action (discount, winback campaign).
 4. **Budget overrun:** Any category more than 10% over budget for the most recent month — flags category with variance and proposes corrective action.
 
-**Why this agent:** These are the three "wake me up at 3am" categories for a D2C ops team. They're not dashboard widgets — they're the things a human ops manager would flag in a Monday morning review. Automating the detection and writing the reasoning in plain language is the minimum useful version of an AI employee.
+**Why this agent:** These are the three "wake me up at 3am" categories for a D2C ops team. They're not dashboard widgets — they're the things a human ops manager would flag in a review. Automating the detection and writing the reasoning in plain language is the minimum useful version of an AI employee.
 
 Every run in `agent_runs` has: `check_name`, `status` (`ok` / `warning` / `action_needed`), `reasoning` (plain English with cited numbers), and `proposed_action`.
 
@@ -136,114 +136,12 @@ Every run in `agent_runs` has: `check_name`, `status` (`ok` / `warning` / `actio
 
 These are based on the sample Google Sheets data (`data/create_sample_sheets.py` — a candle D2C brand). Connect your own sheet and the same questions will work against your live data.
 
----
+- **"What are my biggest raw material expenses?"**
+- **"Which products are running low on stock?"**
 
-**"Which products are running low on stock?"**
+### Example Output
 
-```
-3 SKUs are below their reorder level:
-
-• RC-200 Rose Soy Candle 200g — 8 units (reorder at 20) [google_sheets:inventory#3]
-• GS-5 Gift Set (5 candles) — 6 units (reorder at 10) [google_sheets:inventory#7]
-• LC-200 Lavender Soy Candle 200g — 18 units (reorder at 20) [google_sheets:inventory#2]
-
-Recommend placing reorders for RC-200 (100 units) and GS-5 (30 units) immediately.
-```
-
----
-
-**"What are my biggest raw material costs?"**
-
-```
-Top raw material costs this month:
-
-1. Vanilla Fragrance Oil — ₹21,600/month [google_sheets:raw_material_costs#3]
-   (Scent Studio India · ₹180/100ml × 120 units)
-2. Lavender Essential Oil — ₹19,200/month [google_sheets:raw_material_costs#4]
-   (PureAroma Exports · ₹240/100ml × 80 units)
-3. Soy Wax — ₹17,600/month [google_sheets:raw_material_costs#1]
-   (GreenWax Supplies · ₹220/kg × 80 kg)
-
-Total raw material spend: ₹1,33,350/month [google_sheets:raw_material_costs].
-Fragrance oils alone account for ₹67,700 — 50.8% of total raw material costs.
-```
-
----
-
-**"How did I track against budget in April 2026?"**
-
-```
-April 2026 budget summary:
-
-Over budget:
-• Google Ads +₹3,500 (₹43,500 vs ₹40,000) [google_sheets:monthly_budget#4] — increased bids for Mother's Day
-• Logistics +₹2,400 (₹22,400 vs ₹20,000) [google_sheets:monthly_budget#6] — higher COD volume
-• Packaging +₹1,800 (₹36,800 vs ₹35,000) [google_sheets:monthly_budget#2] — label reprint
-
-Under budget:
-• Raw Materials saved ₹2,600 [google_sheets:monthly_budget#1] — bulk soy wax deal
-• Influencer Marketing saved ₹1,000 [google_sheets:monthly_budget#5]
-• Miscellaneous saved ₹1,800 [google_sheets:monthly_budget#9]
-
-Net: ₹500 over budget across all categories.
-```
-
----
-
-**"Who are my highest-rated vendors?"**
-
-```
-4 vendors with a 5-star rating:
-
-★★★★★ GreenWax Supplies [google_sheets:vendors#1]
-  Raw Materials · 7-day lead time · Net 30 · Arjun Mehta (9876500001)
-
-★★★★★ Scent Studio India [google_sheets:vendors#3]
-  Raw Materials · 5-day lead time · Advance payment · Best vanilla & rose oils
-
-★★★★★ WickMart [google_sheets:vendors#6]
-  Raw Materials · 3-day lead time (fastest) · Advance payment
-
-★★★★★ PackRight Packaging [google_sheets:vendors#7]
-  Packaging · 10-day lead time · Net 30 · Bulk discount >500 units
-```
-
----
-
-**"Which vendor delivers fastest?"**
-
-```
-For raw materials: WickMart — 3 days [google_sheets:vendors#6]. Requires advance payment.
-For logistics: Delhivery [google_sheets:vendors#10] and Shiprocket [google_sheets:vendors#11] — both 1 day.
-```
-
----
-
-**"What's my total ad budget for May 2026?"**
-
-```
-May 2026 planned ad spend:
-
-• Meta Ads: ₹65,000 [google_sheets:monthly_budget#12] — increased for summer campaign
-• Google Ads: ₹45,000 [google_sheets:monthly_budget#13]
-• Influencer Marketing: ₹35,000 [google_sheets:monthly_budget#14] — 2 YouTube collabs planned
-
-Total planned: ₹1,45,000 — up ₹5,000 from April's ₹1,40,000.
-```
-
----
-
-**"Which vendors require advance payment?"**
-
-```
-3 vendors require advance payment before dispatch:
-
-• Scent Studio India [google_sheets:vendors#3] — vanilla & rose fragrance oils · 5-day lead time
-• WickMart [google_sheets:vendors#6] — cotton wicks · 3-day lead time
-• PrintBazaar [google_sheets:vendors#9] — custom labels (min 500 pcs) · 5-day lead time
-
-Plan purchase orders for these 3 ahead of your usual procurement cycle.
-```
+![Sample conversation screenshot](docs/Screenshot.png)
 
 ---
 
@@ -293,10 +191,10 @@ Plan purchase orders for these 3 ahead of your usual procurement cycle.
 
 ## 9. Hours Spent
 
-~28 hours across 4 days:
-- Day 1 (~8h): Connector skeleton, normalisation, Supabase upsert, basic FastAPI endpoints
-- Day 2 (~9h): Agent tools, citation system, autonomous runner, settings UI, multi-tenant credentials, Supabase auth
-- Day 3 (~7h): Groq integration, sheet query tools, frontend citation rendering, test suite, deploy to Railway + Vercel
+~24 hours across 4 days:
+- Day 1 (~6h): Connector skeleton, normalisation, Supabase upsert, basic FastAPI endpoints
+- Day 2 (~8h): Agent tools, citation system, autonomous runner, settings UI, multi-tenant credentials, Supabase auth
+- Day 3 (~6h): Groq integration, sheet query tools, frontend citation rendering, test suite, deploy to Railway + Vercel
 - Day 4 (~4h): Autonomous check scheduling, manual sync button, env var config, README
 
 **AI tools used:** Claude Code for code generation and iteration — connector normalisation boilerplate, settings UI components, test mocks, tool dispatch logic. Architecture decisions, schema choices, connector selection, and agent design were mine. I'd estimate ~45% of lines were AI-generated first draft, ~55% written or substantially edited by hand.
@@ -309,7 +207,6 @@ Plan purchase orders for these 3 ahead of your usual procurement cycle.
 2. **Incremental sync with cursors** — `updated_since` on Shopify, date-range delta on Meta. Cuts sync time from O(total records) to O(new records).
 3. **Google OAuth connector** — replace the service account flow with a one-click "Connect Google" button. Biggest non-technical user friction point.
 4. **Citation verifier** — post-response check that re-queries Supabase for each cited `(table, id)` and confirms the value matches. Makes citation fraud structurally hard, not just instructed-away.
-5. **Klaviyo connector** — email LTV, open rates, and revenue-per-subscriber are the natural next questions after revenue and ROAS are answered.
 
 ---
 
@@ -331,7 +228,7 @@ npm run dev  # http://localhost:3000
 ```
 SUPABASE_URL=
 SUPABASE_KEY=
-GROQ_API_KEY=         # free at console.groq.com
+GROQ_API_KEY=
 ```
 
 **Optional:**
