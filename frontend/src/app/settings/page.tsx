@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   Zap, ChevronLeft, CheckCircle2, XCircle, Info,
   Copy, Check, ChevronDown, ChevronUp, Eye, EyeOff,
-  ExternalLink,
+  ExternalLink, AlertTriangle,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 
@@ -74,6 +74,15 @@ export default function SettingsPage() {
               Connect the tools you use to run your business. Your AI employee will read live data from them.
             </p>
           </div>
+
+          {status && !Object.values(status).some((v) => v.configured) && (
+            <div className="mb-6 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-800">
+                No data sources connected yet. Connect at least one below to start chatting with your AI employee.
+              </p>
+            </div>
+          )}
 
           <div className="flex flex-col gap-4">
             <ShopifyCard

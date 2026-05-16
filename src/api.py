@@ -10,6 +10,7 @@ import uuid
 from datetime import date, timedelta
 from typing import Optional
 
+from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -50,6 +51,7 @@ async def get_current_user(authorization: str = Header(default="")) -> str:
 _session_service = InMemorySessionService()
 _runner = Runner(agent=root_agent, app_name="d2c_agent", session_service=_session_service)
 _sessions: dict[str, str] = {}
+_scheduler = BackgroundScheduler()
 
 
 # ── Request / response models ─────────────────────────────────────────────────
@@ -86,6 +88,21 @@ class SettingsRequest(BaseModel):
     google_sheets: Optional[GoogleSheetsSettings] = None
 
 
+# ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+async def _start_scheduler():
+    from src.jobs.sync import sync_all_merchants
+    _scheduler.add_job(sync_all_merchants, "interval", hours=6, id="sync_all", misfire_grace_time=300)
+    _scheduler.start()
+    logger.info("Sync scheduler started — runs every 6 hours")
+
+
+@app.on_event("shutdown")
+async def _stop_scheduler():
+    _scheduler.shutdown(wait=False)
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -101,6 +118,23 @@ async def health():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, user_id: str = Depends(get_current_user)):
     session_id = req.session_id or str(uuid.uuid4())
+
+    # Guard: refuse to run the agent if no connectors are configured yet
+    try:
+        from src.credentials import credentials_status
+        status = credentials_status(user_id)
+        if not any(v.get("configured") for v in status.values() if isinstance(v, dict)):
+            return ChatResponse(
+                response=(
+                    "No data sources are connected yet.\n\n"
+                    "Please go to **Settings** to connect Shopify, Meta Ads, or Google Sheets "
+                    "so I have data to work with."
+                ),
+                session_id=session_id,
+            )
+    except Exception as e:
+        logger.warning("Could not check connector status: %s", e)
+
     try:
         if session_id not in _sessions:
             session = await _session_service.create_session(

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, Plus, Zap, Loader2, RotateCcw, Settings, LogOut } from 'lucide-react'
+import { Send, Plus, Zap, Loader2, RotateCcw, Settings, LogOut, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -26,22 +26,43 @@ const SUGGESTIONS = [
   "What's my repeat customer rate?",
 ]
 
+// ── Citation preprocessor ─────────────────────────────────────────────────────
+
+function processCitations(text: string): string {
+  // Convert [source:table#id] → `[table#id]` so ReactMarkdown renders them as
+  // styled inline code (visually distinct, no extra packages needed)
+  return text.replace(/\[source:([^\]]+)\]/g, '`[$1]`')
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
   const router   = useRouter()
   const supabase = createClient()
 
-  const [messages, setMessages]   = useState<Message[]>([])
-  const [input, setInput]         = useState('')
-  const [loading, setLoading]     = useState(false)
-  const [sessionId, setSessionId] = useState('')
-  const [merchantId, setMerchantId] = useState('')
-  const [authToken, setAuthToken] = useState('')
-  const [userEmail, setUserEmail] = useState('')
+  const [messages, setMessages]       = useState<Message[]>([])
+  const [input, setInput]             = useState('')
+  const [loading, setLoading]         = useState(false)
+  const [sessionId, setSessionId]     = useState('')
+  const [merchantId, setMerchantId]   = useState('')
+  const [authToken, setAuthToken]     = useState('')
+  const [userEmail, setUserEmail]     = useState('')
+  const [connectorStatus, setConnectorStatus] = useState<Record<string, { configured: boolean }>>({})
+  const [statusLoaded, setStatusLoaded] = useState(false)
   const bottomRef   = useRef<HTMLDivElement>(null)
   const inputRef    = useRef<HTMLTextAreaElement>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
+
+  const hasConnectors = Object.values(connectorStatus).some((v) => v.configured)
+
+  const fetchConnectorStatus = useCallback((mid: string, token: string) => {
+    fetch(`/api/settings?merchant_id=${mid}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => r.json())
+      .then((data) => { setConnectorStatus(data); setStatusLoaded(true) })
+      .catch(() => setStatusLoaded(true))
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -50,6 +71,7 @@ export default function ChatPage() {
       setAuthToken(session.access_token)
       setUserEmail(session.user.email ?? '')
       setSessionId(localStorage.getItem('d2c_session_id') || '')
+      fetchConnectorStatus(session.user.id, session.access_token)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -136,6 +158,7 @@ export default function ChatPage() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      if (!hasConnectors) return
       send()
     }
   }
@@ -145,6 +168,11 @@ export default function ChatPage() {
     e.target.style.height = 'auto'
     e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`
   }
+
+  const inputDisabled = loading || (statusLoaded && !hasConnectors)
+  const inputPlaceholder = statusLoaded && !hasConnectors
+    ? 'Connect a data source in Settings to start chatting…'
+    : 'Ask about revenue, ROAS, inventory…'
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -174,7 +202,7 @@ export default function ChatPage() {
               <Settings className="w-3.5 h-3.5" />
             </Link>
           </div>
-          <ConnectorDots merchantId={merchantId} authToken={authToken} />
+          <ConnectorDots status={connectorStatus} />
           {userEmail && (
             <div className="mt-3 pt-3 border-t border-white/10">
               <p className="text-xs text-gray-500 truncate mb-1.5">{userEmail}</p>
@@ -202,11 +230,25 @@ export default function ChatPage() {
           </button>
         </header>
 
+        {/* No-connector warning banner */}
+        {statusLoaded && !hasConnectors && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center gap-2 text-sm text-amber-800">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>
+              No data sources connected.{' '}
+              <Link href="/settings" className="font-semibold underline hover:text-amber-900">
+                Go to Settings
+              </Link>{' '}
+              to connect Shopify, Meta Ads, or Google Sheets.
+            </span>
+          </div>
+        )}
+
         {/* Messages */}
         <div ref={messagesRef} className="flex-1 overflow-y-auto">
           <div className="max-w-2xl mx-auto px-4 py-8 flex flex-col gap-6">
             {messages.length === 0 ? (
-              <EmptyState onSuggest={(s) => send(s)} />
+              <EmptyState hasConnectors={hasConnectors} statusLoaded={statusLoaded} onSuggest={(s) => send(s)} />
             ) : (
               messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
             )}
@@ -224,15 +266,15 @@ export default function ChatPage() {
               value={input}
               onChange={autoResize}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about revenue, ROAS, inventory…"
+              placeholder={inputPlaceholder}
               rows={1}
-              disabled={loading}
-              className="flex-1 resize-none rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-gray-400 disabled:bg-gray-50 transition-colors leading-relaxed"
+              disabled={inputDisabled}
+              className="flex-1 resize-none rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-gray-400 disabled:bg-gray-50 disabled:text-gray-400 transition-colors leading-relaxed"
               style={{ minHeight: '44px', maxHeight: '160px' }}
             />
             <button
               onClick={() => send()}
-              disabled={!input.trim() || loading}
+              disabled={!input.trim() || loading || !hasConnectors}
               aria-label="Send message"
               className="shrink-0 p-3 bg-gray-900 text-white rounded-xl hover:bg-gray-700 disabled:bg-gray-200 disabled:text-gray-400 transition-colors"
             >
@@ -244,7 +286,7 @@ export default function ChatPage() {
             </button>
           </div>
           <p className="max-w-2xl mx-auto text-center text-xs text-gray-400 mt-2">
-            Enter to send · Shift+Enter for new line
+            {hasConnectors ? 'Enter to send · Shift+Enter for new line' : 'Connect a data source above to enable chat'}
           </p>
         </div>
       </div>
@@ -254,19 +296,7 @@ export default function ChatPage() {
 
 // ── ConnectorDots ─────────────────────────────────────────────────────────────
 
-function ConnectorDots({ merchantId, authToken }: { merchantId: string; authToken: string }) {
-  const [status, setStatus] = useState<Record<string, { configured: boolean }>>({})
-
-  useEffect(() => {
-    if (!merchantId) return
-    fetch(`/api/settings?merchant_id=${merchantId}`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-    })
-      .then((r) => r.json())
-      .then(setStatus)
-      .catch(() => {})
-  }, [merchantId, authToken])
-
+function ConnectorDots({ status }: { status: Record<string, { configured: boolean }> }) {
   const connectors = [
     { key: 'shopify',       label: 'Shopify' },
     { key: 'meta_ads',      label: 'Meta Ads' },
@@ -313,7 +343,9 @@ function MessageBubble({ message }: { message: Message }) {
         }`}
       >
         <div className="prose prose-sm">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {processCitations(message.content)}
+          </ReactMarkdown>
         </div>
       </div>
     </div>
@@ -341,7 +373,37 @@ function TypingIndicator() {
   )
 }
 
-function EmptyState({ onSuggest }: { onSuggest: (s: string) => void }) {
+function EmptyState({
+  hasConnectors,
+  statusLoaded,
+  onSuggest,
+}: {
+  hasConnectors: boolean
+  statusLoaded: boolean
+  onSuggest: (s: string) => void
+}) {
+  if (statusLoaded && !hasConnectors) {
+    return (
+      <div className="flex flex-col items-center text-center py-16">
+        <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center mb-5">
+          <AlertTriangle className="w-7 h-7 text-amber-600" />
+        </div>
+        <h1 className="text-xl font-semibold text-gray-900 mb-2">
+          No data sources connected
+        </h1>
+        <p className="text-sm text-gray-500 mb-6 max-w-sm">
+          Connect Shopify, Meta Ads, or Google Sheets so your AI employee has data to work with.
+        </p>
+        <Link
+          href="/settings"
+          className="px-5 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-xl hover:bg-gray-700 transition-colors"
+        >
+          Go to Settings
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col items-center text-center py-16">
       <div className="w-14 h-14 bg-gray-900 rounded-2xl flex items-center justify-center mb-5">
