@@ -126,7 +126,7 @@ def add_note(table: str, row_id: int, note: str) -> dict:
 
 # ── Agent log ─────────────────────────────────────────────────────────────────
 
-def log_agent_run(check_name: str, status: str, reasoning: str, proposed_action: str, citations: list) -> dict:
+def log_agent_run(check_name: str, status: str, reasoning: str, proposed_action: str, citations: list[str]) -> dict:
     """Write an autonomous agent run with reasoning and proposed action to the database."""
     from src.agent.citations import verify_citations
     valid, invalid = verify_citations(citations)
